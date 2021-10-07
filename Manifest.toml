@@ -557,9 +557,9 @@ uuid = "56ddb016-857b-54e1-b83d-db4d58db5568"
 
 [[MKL_jll]]
 deps = ["Artifacts", "IntelOpenMP_jll", "JLLWrappers", "LazyArtifacts", "Libdl", "Pkg"]
-git-tree-sha1 = "c253236b0ed414624b083e6b72bfe891fbd2c7af"
+git-tree-sha1 = "5455aef09b40e5020e1520f551fa3135040d4ed0"
 uuid = "856f044c-d86e-5d09-b602-aeab76dc8ba7"
-version = "2021.1.1+1"
+version = "2021.1.1+2"
 
 [[MacroTools]]
 deps = ["Markdown", "Random"]
@@ -884,6 +884,12 @@ deps = ["ChainRulesCore", "LogExpFunctions", "OpenSpecFun_jll"]
 git-tree-sha1 = "a322a9493e49c5f3a10b50df3aedaf1cdb3244b7"
 uuid = "276daf66-3868-5448-9aa4-cd146d93841b"
 version = "1.6.1"
+
+[[Spinnaker]]
+deps = ["FixedPointNumbers", "Libdl"]
+git-tree-sha1 = "3eeee65154bcf40cedc3e986dd8d6bf45a822991"
+uuid = "8e0d2ad3-56b8-53f3-8036-54b674872bef"
+version = "0.2.4"
 
 [[StackViews]]
 deps = ["OffsetArrays"]
