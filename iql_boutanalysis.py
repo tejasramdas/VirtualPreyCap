@@ -4,6 +4,7 @@ import pandas as pd
 import seaborn as sns
 from matplotlib import pyplot as pl
 from scipy.signal import argrelmax, argrelmin
+import sys
 
 def load_bout_data():
     h5f = h5py.File("total_2rep_smooth_modelData.h5", 'r')
@@ -15,14 +16,17 @@ def grab_first(x):
     except StopIteration:
         return -1
 
+
+# everything inverted here so positive is right, neg is left.
+    
 def delta_yaw(heading):
     h0, h1 = heading
-    if h1 - h0 < -np.pi:
+    if h1 - h0 > np.pi:
         dyaw = h0 + (2*np.pi - h1)
-    elif h1 - h0 > np.pi:
+    elif h1 - h0 < -np.pi:
         dyaw = -1 * (h1 + (2*np.pi - h0))
     else:
-        dyaw = h1 - h0
+        dyaw = -1*(h1 - h0)
     return dyaw
 
 def bout_az(eyepos, heading):
@@ -32,7 +36,8 @@ def bout_az(eyepos, heading):
     delta_eyepos_unit = (eye2 - eye1) / np.linalg.norm(eye2-eye1)
     # unit vector pointing in direction of heading
     heading_unit = [np.cos(h0), np.sin(h0)]
-    bout_az = np.sign(np.cross(delta_eyepos_unit, heading_unit)) * np.arccos(np.dot(delta_eyepos_unit, heading_unit))
+    bout_az = np.sign(np.cross(delta_eyepos_unit, heading_unit)) * np.arccos(
+        np.dot(delta_eyepos_unit, heading_unit))
     return bout_az
 
 def bout_dist(eyepos):
@@ -54,7 +59,12 @@ def make_dataframe(ta_at_b0, eyeposlist, fish_heading_angles, headers, clip_data
         dict_entry = {h: val for h, val in zip(
             all_headers, ta_concat+[b_az, b_yaw, b_dist])}
         df.loc[len(df.index)] = dict_entry
-    df.to_csv('boutdata.csv')
+
+    for c in df.columns:
+        if len(df[c].value_counts()) == 0:
+            del df[c]
+    df.to_csv('boutdata.csv', index=False)  #, na_rep='NaN')
+    
     return df
 
             
@@ -71,7 +81,7 @@ if __name__ == "__main__":
     eye_positions = np.array(bd['position1'])[random_indices]
     heading_deltas = np.array(bd['heading'])[random_indices]
     atan_map = lambda t: np.arctan2(t[..., 1], t[..., 0]).T
-  #  tail_angles = list(map(atan_map, bd["tailComponents"]))
+    tail_angles = list(map(atan_map, bd["tailComponents"]))
     bout_detector = lambda x: grab_first(filter(lambda y: np.abs(x[0])[y] > .3,
                                                 argrelmax(np.abs(x[0]))[0])) - 5
     bout_initiation = list(map(bout_detector, tail_angles))
