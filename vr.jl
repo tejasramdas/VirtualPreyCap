@@ -22,9 +22,12 @@ using GLMakie
 # stop!(cam)
 
 function draw_para_trajectory()
-    xtraj = range(1.0, stop=500)
-    ytraj = ones(500)
-    ztraj = range(1.0, stop=500)
+  #  xtraj = vcat(zeros(100), 100*ones(100), -100*(ones(300)))
+    xtraj = zeros(500)
+    ytraj = -50:.2:50
+#    ytraj = 50*ones(500)
+    #    ztraj = 20*ones(500)
+    ztraj = zeros(500)
     full_traj = zip(xtraj, ytraj, ztraj)
     return collect(full_traj)
 end
@@ -51,28 +54,43 @@ end
 
 function make_VR_environment()
     black = RGBAf0(0, 0, 0, 0.0)
-    row_res = 1500
-    col_res = 1500
+    row_res = 800
+    col_res = 480
     env_fig = Figure(resolution=(row_res, col_res))
     limval = 100
     timenode = Node(1)
     para_trajectory = draw_para_trajectory()
     coords(t) = convert(Vector{Point3f0}, para_trajectory[t:t])
+    # 8 px = 1mm, so fish is in a 25mm tank
     lim = (-limval, limval, -limval, limval, -limval, limval)
     # note perspectiveness variable is 0.0 for orthographic, 1.0 for perspective, .5 for intermediate
+    # have to use SceneSpace for markerspace to get coords in dataunits. 
     env_axis = Axis3(env_fig[1,1], xtickcolor=black,
-                     viewmode=:fit, aspect=(1,1,1), perspectiveness=0.0, protrusions=0, limits=lim)
-    # scatter!(env_axis, lift(t -> coords(t), timenode), color=:black, markersize=10000)
-    scatter!(env_axis, [Point3f0(0, 0, 20)], markersize=10000)
-    fish = cam3d!(env_axis.scene)
-    fish_origin = Vec3f0(-limval, 0, 0)
-    fish_lookat_t0 = Vec3f0(0, 0, 0)
-    update_cam!(env_axis.scene, fish, fish_origin, fish_lookat_t0)
+                     viewmode=:fit, aspect=(1,1,1), perspectiveness=0, protrusions=0, limits=lim)
+    scatter!(env_axis, lift(t -> coords(t), timenode), markersize=3, markerspace=SceneSpace)
+    # set rotation_center as the eyeposition b/c otherwise it rotates around the origin of the grid (i.e. the lookat)
+    fish = cam3d!(env_axis.scene, eyeposition=Vec3f0(-limval, 0, 0), lookat=Vec3f0(0,0,0), fixed_axis=true, fov=100, rotation_center=:eyeposition)
+    hidedecorations!(env_axis)
+    hidespines!(env_axis)
+    center!(env_axis.scene)
+    # this is the only way to center it and get it to the point you want!
+    translate_cam!(env_axis.scene, fish, Vec3f0(0, 0, fish.eyeposition[][1] + limval))
+    translate_cam!(env_axis.scene, fish, Vec3f0(0, -fish.eyeposition[][3], 0))
+    translate_cam!(env_axis.scene, fish, Vec3f0(fish.eyeposition[][2], 0, 0))
+
+
+#    translate_cam!(env_axis.scene, fish, Vec3f0(0, 0, -50)) 
     display(env_fig)
-    # for i in 90:100
-    #     sleep(.05)
-    #     timenode[] = i
-    # end
+    # for translate cam and rotate cam, the vectors are side to side, up and down, and into the screen. they aren't x, y, z, but are in the same units. angles are in rad. 
+    for i in 1:500
+        sleep(.01)
+        timenode[] = i
+        if i > 200
+            translate_cam!(env_axis.scene, fish, Vec3f0(0, 0, -.3))
+            rotate_cam!(env_axis.scene, fish, Vec3f0(0, .0015, 0))
+        end
+        
+    end
     return env_axis, fish
 end
 
