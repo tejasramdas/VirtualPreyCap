@@ -1,7 +1,8 @@
-using Spinnaker
+#using Spinnaker
 using Images
 using GLMakie
 using GeometryBasics
+using LinearAlgebra
 
 #camlist = CameraList()
 #cam = camlist[0]
@@ -101,11 +102,11 @@ end
 
 # define type of camera here, have it take an image and display it. 
 
-function input_tail_boundaries(fig)
+function input_tail_boundaries(fishfig, fishax)
     top_and_bottom_coords = []
-    on(events(fig).mousebutton) do buttonpress
+    on(events(fishfig).mousebutton) do buttonpress
         if buttonpress.action == Mouse.press
-            push!(top_and_bottom_coords, events(fig).mouseposition[])
+            push!(top_and_bottom_coords, mouseposition(fishax.scene))
         end
     end
     query_enter() = length(top_and_bottom_coords) == 2
@@ -122,20 +123,26 @@ end
 # circshift can cycle the array. 
 
 function tailtracker(fishim)
-    fishfig = image(fishim, axes=(aspect=DataAspect(), title="i am a fish"))
-    tailtop, tailbottom = input_tail_boundaries(fishfig)
-
-
+    fishfig, fishax = image(fishim)
+    fishax.aspect = DataAspect()
+    fishax.title = "I'm a fish broseph"
+    display(fishfig)
+    tailtop, tailbottom = input_tail_boundaries(fishfig, fishax)
+    println(tailtop, tailbottom)
+    tail_length = norm(tailtop - tailbottom)
     numsegs = 15
-    # filter image here if you want. 
-#    find_tailangles(fishim, [], numsegs, (Point(
- #   Int(round(coord))
+    seg_length = tail_length / numsegs
+    # filter image here if you want.
+    tail_θ, tail_xy = find_tail_angles(fishim, [1], [tailtop],
+                                       numsegs, (Point2(tailtop...), seg_length))
+    [poly!(fishax, Circle(Point2f(xy...), 5)) for xy in tail_xy]
+    return tail_θ, tail_xy
 end
 
 
-function find_tail_angles(im, tailangles, numsegs, circle_params)
+function find_tail_angles(im, tailangles, tailpos, numsegs, circle_params)
     if numsegs == 0
-        return tailangles
+        return tailangles, tailpos
     else
         arc = collect(coordinates(Circle(circle_params...), tail_circle_res))
         shifted_arc = circshift(arc, cumsum(tailangles[end]))
@@ -145,12 +152,12 @@ function find_tail_angles(im, tailangles, numsegs, circle_params)
         # first shift it so that the left point on the circle is the first index. currently moving
         # from the bottom counterclockwise.
         # the index it find in arc directly corresponds to an angle on 0:2pi by 128 steps.
-        imvals_on_arc = map(f -> im[rint.(f)...], arc_bottom_half)
+        imvals_on_arc = map(f -> im[roundint.(f)...], arc_bottom_half)
         minval = findmin(imvals_on_arc)
-        println(minval)
+        println(numsegs)
         next_tailpoint = arc_bottom_half[minval[2]] # this is the circle coordinate with the max value. 
         ta_curr = findfirst(isequal(next_tailpoint), shifted_arc)
-        find_tail_angles(im, vcat(tailangles, ta_curr),
+        find_tail_angles(im, vcat(tailangles, ta_curr), vcat(tailpos, [next_tailpoint]),
                          numsegs-1, (Point2(next_tailpoint...), circle_params[2]))
     end
 end
