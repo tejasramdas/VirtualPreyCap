@@ -1,6 +1,7 @@
 using Spinnaker
 using Images
 using GLMakie
+using GeometryBasics
 
 #camlist = CameraList()
 #cam = camlist[0]
@@ -21,6 +22,20 @@ using GLMakie
 # Images.save("/home/andrewbolton/VirtualPreyCap/im.png", im_arr)
 # stop!(cam)
 
+roundint(x) = round(Int, x)
+tail_circle_res = 128
+zero_to_pi = 0:π/(tail_circle_res / 2):π
+pi_to_zero = -π:π/(tail_circle_res / 2):0
+arc_index_to_angle(x) = vcat(zero_to_pi[1:end-1], pi_to_zero[1:end-1])[x]
+
+
+fishimage = load("embedded_fish.png")
+fishimage = convert(Matrix{Gray}, fishimage)
+fishimage = convert(Matrix{UInt8}, fishimage * 255)
+
+
+
+
 function draw_para_trajectory()
   #  xtraj = vcat(zeros(100), 100*ones(100), -100*(ones(300)))
     xtraj = zeros(500)
@@ -33,24 +48,12 @@ function draw_para_trajectory()
 end
 
 
-function makie_test()
-    f = Figure(resolution = (1200, 800), fontsize = 14)
 
-    xs = LinRange(0, 10, 100)
-    ys = LinRange(0, 10, 100)
-    zs = [cos(x) * sin(y) for x in xs, y in ys]
+# TODO:
+# decide whether to use textured ground. may be a research project in itself.
+# add real trajectories with real choices.
+# 
 
-    for (i, perspectiveness) in enumerate(LinRange(0, 1, 6))
-        Axis3(f[fldmod1(i, 3)...], perspectiveness = perspectiveness,
-            title = "$perspectiveness")
-
-        surface!(xs, ys, zs)
-    end
-    display(f)
-end
-
-
-# note "msize" has been replaced by "markersize" 
 
 function make_VR_environment()
     black = RGBAf0(0, 0, 0, 0.0)
@@ -63,10 +66,11 @@ function make_VR_environment()
     coords(t) = convert(Vector{Point3f0}, para_trajectory[t:t])
     # 8 px = 1mm, so fish is in a 25mm tank
     lim = (-limval, limval, -limval, limval, -limval, limval)
-    # note perspectiveness variable is 0.0 for orthographic, 1.0 for perspective, .5 for intermediate
-    # have to use SceneSpace for markerspace to get coords in dataunits. 
+    # perspectiveness variable is 0.0 for orthographic, 1.0 for perspective, .5 for intermediate
+    # have to use SceneSpace for markerspace to get coords in dataunits.
+    # note "msize" has been replaced by "markersize" 
     env_axis = Axis3(env_fig[1,1], xtickcolor=black,
-                     viewmode=:fit, aspect=(1,1,1), perspectiveness=0, protrusions=0, limits=lim)
+                     viewmode=:fit, aspect=(1,1,1), perspectiveness=0.5, protrusions=0, limits=lim)
     scatter!(env_axis, lift(t -> coords(t), timenode), markersize=3, markerspace=SceneSpace)
     # set rotation_center as the eyeposition b/c otherwise it rotates around the origin of the grid (i.e. the lookat)
     fish = cam3d!(env_axis.scene, eyeposition=Vec3f0(-limval, 0, 0), lookat=Vec3f0(0,0,0), fixed_axis=true, fov=100, rotation_center=:eyeposition)
@@ -94,5 +98,68 @@ function make_VR_environment()
     return env_axis, fish
 end
 
-# next steps are to use the code from SpikingInference distance model and re-create para trajectories inside the
-# arena. try to create perspective from the fish's POV. 
+
+# define type of camera here, have it take an image and display it. 
+
+function input_tail_boundaries(fig)
+    top_and_bottom_coords = []
+    on(events(fig).mousebutton) do buttonpress
+        if buttonpress.action == Mouse.press
+            push!(top_and_bottom_coords, events(fig).mouseposition[])
+        end
+    end
+    query_enter() = length(top_and_bottom_coords) == 2
+    # will either stop when you press enter or when 200 seconds have passed. 
+    timedwait(query_enter, 2000.0)
+    return top_and_bottom_coords
+end
+
+
+# Circle uses 64 coords to define the circle.
+# 500x500 image, get ~4ms for a gaussian filter, implemented with imfilter(im, Kernel.gaussian(std)).
+# 700x700 is a 10ms gaussian.
+
+# circshift can cycle the array. 
+
+function tailtracker(fishim)
+    fishfig = image(fishim, axes=(aspect=DataAspect(), title="i am a fish"))
+    tailtop, tailbottom = input_tail_boundaries(fishfig)
+
+
+    numsegs = 15
+    # filter image here if you want. 
+#    find_tailangles(fishim, [], numsegs, (Point(
+ #   Int(round(coord))
+end
+
+
+function find_tail_angles(im, tailangles, numsegs, circle_params)
+    if numsegs == 0
+        return tailangles
+    else
+        arc = collect(coordinates(Circle(circle_params...), tail_circle_res))
+        shifted_arc = circshift(arc, cumsum(tailangles[end]))
+        arc_bottom_half = shifted_arc[Int((tail_circle_res / 4) + 1) : Int(tail_circle_res * 3/4)]
+        
+        # you are going to chop this arc up according to a total subtended angle and the previous angle
+        # first shift it so that the left point on the circle is the first index. currently moving
+        # from the bottom counterclockwise.
+        # the index it find in arc directly corresponds to an angle on 0:2pi by 128 steps.
+        imvals_on_arc = map(f -> im[rint.(f)...], arc_bottom_half)
+        minval = findmin(imvals_on_arc)
+        println(minval)
+        next_tailpoint = arc_bottom_half[minval[2]] # this is the circle coordinate with the max value. 
+        ta_curr = findfirst(isequal(next_tailpoint), shifted_arc)
+        find_tail_angles(im, vcat(tailangles, ta_curr),
+                         numsegs-1, (Point2(next_tailpoint...), circle_params[2]))
+    end
+end
+
+
+
+
+
+# probably want one thread to read camera images and extract tail angles
+# have a second thread that waits for tail angles and updates the VR accordingly.
+
+# either way you have to set the top and bottom of the tail. first press t, then mouseclick, then b the mouseclick. 
