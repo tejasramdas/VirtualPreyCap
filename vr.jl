@@ -30,7 +30,7 @@ pi_to_zero = -π:π/(tail_circle_res / 2):0
 arc_index_to_angle(x) = vcat(zero_to_pi[1:end-1], pi_to_zero[1:end-1])[x]
 
 
-fishimage = load("embedded_fish.png")
+fishimage = load("embedded_fish_bent_left.png")
 fishimage = convert(Matrix{Gray}, fishimage)
 fishimage = convert(Matrix{UInt8}, fishimage * 255)
 
@@ -130,35 +130,52 @@ function tailtracker(fishim)
     tailtop, tailbottom = input_tail_boundaries(fishfig, fishax)
     println(tailtop, tailbottom)
     tail_length = norm(tailtop - tailbottom)
-    numsegs = 15
+    numsegs = 20
     seg_length = tail_length / numsegs
     # filter image here if you want.
     tail_θ, tail_xy = find_tail_angles(fishim, [1], [tailtop],
-                                       numsegs, (Point2(tailtop...), seg_length))
+                                       numsegs, (Point2(tailtop...), seg_length), fishax)
     [poly!(fishax, Circle(Point2f(xy...), 5)) for xy in tail_xy]
-    return tail_θ, tail_xy
+    return tail_θ[2:end], tail_xy
 end
 
 
-function find_tail_angles(im, tailangles, tailpos, numsegs, circle_params)
+# this is all correct now except the indicies are inverted -- i think
+# positive should be positive and neg should be neg...otherwise mag and dot placement is right.
+
+
+function find_tail_angles(im, tailangles, tailpos, numsegs, circle_params, fishax)
     if numsegs == 0
         return tailangles, tailpos
     else
         arc = collect(coordinates(Circle(circle_params...), tail_circle_res))
-        shifted_arc = circshift(arc, cumsum(tailangles[end]))
-        arc_bottom_half = shifted_arc[Int((tail_circle_res / 4) + 1) : Int(tail_circle_res * 3/4)]
+        # shifts the center bottom of the circle (i.e. the vector pointing from the circle center along the tail) to the first element. 
+        shifted_arc = circshift(arc, -1*(sum(tailangles) - length(tailangles)))
+
+        arc_bottom_half = vcat(shifted_arc[Int(tail_circle_res * 3 / 4) + 1:end],
+                               shifted_arc[1:Int(tail_circle_res / 4)])
+
+   
+   
+                               
+
         
-        # you are going to chop this arc up according to a total subtended angle and the previous angle
+        cmap = range(colorant"skyblue2", stop=colorant"navyblue", length=length(arc_bottom_half))
+        for (i, coord) in enumerate(arc_bottom_half)
+            poly!(fishax, Circle(Point2f(coord...), 5), color=cmap[i])
+        end
+        
         # first shift it so that the left point on the circle is the first index. currently moving
         # from the bottom counterclockwise.
         # the index it find in arc directly corresponds to an angle on 0:2pi by 128 steps.
         imvals_on_arc = map(f -> im[roundint.(f)...], arc_bottom_half)
         minval = findmin(imvals_on_arc)
         println(numsegs)
-        next_tailpoint = arc_bottom_half[minval[2]] # this is the circle coordinate with the max value. 
+        next_tailpoint = arc_bottom_half[minval[2]] # this is the circle coordinate with the max value.
+
         ta_curr = findfirst(isequal(next_tailpoint), shifted_arc)
         find_tail_angles(im, vcat(tailangles, ta_curr), vcat(tailpos, [next_tailpoint]),
-                         numsegs-1, (Point2(next_tailpoint...), circle_params[2]))
+                         numsegs-1, (Point2(next_tailpoint...), circle_params[2]), fishax)
     end
 end
 
