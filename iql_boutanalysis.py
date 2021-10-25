@@ -5,6 +5,11 @@ import seaborn as sns
 from matplotlib import pyplot as pl
 from scipy.signal import argrelmax, argrelmin
 import sys
+import json
+import sppl.compilers.spn_to_dict as spn_to_dict
+from sppl.transforms import Identity as I
+from collections import OrderedDict
+
 
 def load_bout_data():
     h5f = h5py.File("total_2rep_smooth_modelData.h5", 'r')
@@ -106,10 +111,185 @@ class BoutDataCollector:
         return df
 
 
+class SpplSampler:
+    def __init__(self):
+        self.df = pd.read_csv("/Users/nightcrawler/inferenceql.auto-modeling/data/nullified.csv")
+        self.model = self.loader()
+        with open('/Users/nightcrawler/inferenceql.auto-modeling/data/dep-prob.json', 'r') as f:
+            self.dep_prob = json.load(f)
+        self.dep_df = pd.DataFrame()
+        self.extract_dependencies()
+#        self.observed_data = 
+
+    def loader(self):
+        with open("/Users/nightcrawler/inferenceql.auto-modeling/data/sppl/merged.json") as f:
+            spn_dict = json.load(f)
+        model = spn_to_dict.spn_from_dict(spn_dict)
+        return model
+
+    def plot_dependencies_in_df_order(self):
+        c1s = []
+        ps = []
+        for c1 in self.dep_prob.keys():
+            for c2 in self.dep_prob.keys():
+                if c1 == c2:
+                    p = 1.
+                else:
+                    p = self.dep_prob[c1][c2]
+                ps.append(p)
+            c1s.append(c1)
+        ps_arr = np.array(ps)
+        ps_reshape = ps_arr.reshape((int(np.sqrt(len(ps))), int(np.sqrt(len(ps)))))
+        dep_df = pd.DataFrame(ps_reshape, index=c1s, columns=c1s)   #, index=c1s, columns=c2s)   
+        print(dep_df)
+        f = pl.figure(figsize=(6,6))
+        sns.set(font_scale = .1)
+        sns.heatmap(dep_df, xticklabels=1, yticklabels=1, cmap="viridis")
+        pl.savefig("deps_in_df_order.pdf")
+
+    def extract_dependencies(self):
+        c1s = []
+        c2s = []
+        ps = []
+        for c1 in self.dep_prob.keys():
+            for c2 in self.dep_prob.keys():
+                if c1 == c2:
+                    p = 1.
+                else:
+                    p = self.dep_prob[c1][c2]
+                c1s.append(c1)
+                c2s.append(c2)
+                ps.append(p)
+        self.dep_df = pd.DataFrame({"c1": c1s, "c2": c2s, "p": ps})
+
+    def plot_clustermap(self, ax=None, **kwargs):
+        """Plot a clustermap by pivoting the last 3 columns of `df`.
+        """
+        if len(df.columns) < 3:
+            raise ValueError('At least three columns requried: %s' % (self.dep_df.columns,))
+        # Pivot the matrix.
+        pivot = self.dep_df.pivot(
+            index=self.dep_df.columns[-3],
+            columns=self.dep_df.columns[-2],
+            values=self.dep_df.columns[-1],
+        )
+        pivot.fillna(0, inplace=True)
+        # Check if all values are between 0 and 1 to set vmin and vmax.
+        (vmin, vmax) = (None, None)
+        if all(0 <= v <= 1 for v in self.dep_df.iloc[:,-1]):
+            (vmin, vmax) = (0, 1)
+        D = np.asmatrix(pivot.values) 
+        zmatrix = _clustermap(D,
+                              xticklabels=pivot.columns.tolist(),
+                              yticklabels=pivot.index.tolist(),
+                              vmin=vmin,
+                              vmax=vmax
+                              )
+        # Heuristics for the size.
+        figsize = kwargs.pop('figsize', None)
+        if figsize is None:
+            half_root_col = (self.dep_df.shape[0] ** .5) / 2.
+            figsize = (half_root_col, .8 * half_root_col)
+        zmatrix.fig.set_size_inches(figsize)
+        return zmatrix
+
+    def plot_depedency_heatmap(self, ax=None, **kwargs):
+        """Plot a heatmap by pivoting the last 3 columns of `df`.
+        """
+        if len(self.dep_df.columns) < 3:
+            raise ValueError('At least three columns requried: %s' % (self.dep_df.columns,))
+        # Pivot the matrix.
+        pivot = self.dep_df.pivot(
+            index=self.dep_df.columns[-3],
+            columns=self.dep_df.columns[-2],
+            values=self.dep_df.columns[-1],
+        )
+        pivot.fillna(0, inplace=True)
+        # Check if all values are between 0 and 1 to set vmin and vmax.
+        (vmin, vmax) = (None, None)
+        if all(0 <= v <= 1 for v in self.dep_df.iloc[:,-1]):
+            (vmin, vmax) = (0, 1)
+        # Apply the optimal ordering from a clustermap.
+        D = np.asmatrix(pivot.values)
+        (xordering, yordering) = _clustermap_ordering(D)
+        xticklabels = np.asarray(pivot.columns)[xordering]
+        yticklabels = np.asarray(pivot.index)[yordering]
+        D = D[:,xordering]
+        D = D[yordering,:]
+        ax = sns.heatmap(
+            D,
+            xticklabels=xticklabels,
+            yticklabels=yticklabels,
+            linewidths=0.2,
+            cbar=kwargs.get('cbar', True),
+            cmap='viridis',
+            ax=ax,
+            vmin=vmin,
+            vmax=vmax,
+        )
+        # Heuristics for the size.
+        figsize = kwargs.pop('figsize', None)
+        if figsize is None:
+            half_root_col = (self.dep_df.shape[0] ** .5) / 2.5
+            figsize = (half_root_col, .8 * half_root_col)
+        ax.get_figure().set_size_inches(figsize)
+        return ax
+
+    # this takes a couple minutes to sample! 
+    def generate(self, N, *constraint_row):
+        if constraint_row == ():
+            model = self.model
+        else:
+            model = self.make_conditional_spn(constraint_row[0])
+        samples = model.sample(N)
+        return pd.DataFrame(
+            [
+                {k.__str__(): v
+                 for k, v in sample.items()
+                 if ('_cluster' not in k.__str__()) and k.__str__()!='child'
+                 }
+                for sample in samples
+            ])[self.df.columns]
+
+    # get out by df.loc[1]
+    def make_conditional_spn(self, df_row):
+        constraints = {I(k): v for k, v in df_row.to_dict().items() if (
+            k[0:4] != "Bout" and np.isfinite(v))}
+        model = self.model.constrain(constraints)
+        return model
+        
 
 
 
+    
+def _clustermap(
+        D, xticklabels=None, yticklabels=None, vmin=None, vmax=None, **kwargs):
+    sns.set_style('white')
+    if xticklabels is None:
+        xticklabels = range(D.shape[0])
+    if yticklabels is None:
+        yticklabels = range(D.shape[1])
+    zmatrix = sns.clustermap(
+        D,
+        xticklabels=xticklabels,
+        yticklabels=yticklabels,
+        linewidths=0.2,
+        cmap='BuGn',
+        vmin=vmin,
+        vmax=vmax,
+    )
+    pl.setp(zmatrix.ax_heatmap.get_yticklabels(), rotation=0)
+    pl.setp(zmatrix.ax_heatmap.get_xticklabels(), rotation=90)
+    return zmatrix
 
+
+def _clustermap_ordering(D):
+    """Returns the ordering of variables in D according to the clustermap."""
+    zmatrix = _clustermap(D)
+    pl.close(zmatrix.fig)
+    xordering = zmatrix.dendrogram_col.reordered_ind
+    yordering = zmatrix.dendrogram_row.reordered_ind
+    return (xordering, yordering)
     
 # if __name__ == "__main__":
 #     random_indices = np.cumsum([np.random.randint(200) for i in range(1000)])
@@ -117,41 +297,38 @@ class BoutDataCollector:
 #     bd.export_bout_dataframe()
 
 
-
-    
-    
 '''
 
-tailComponents is arranged by bout, frame, 15 tail segments with an XY angle.
-only relevant data pieces are tailComponents and deltaPosition
 
-===========================================================================
+tailComponents is arranged by bout, frame, 15 tail segments with an XY angle. only relevant data pieces are tailComponents and deltaPosition
 
-            'tailComponents':
-                                    <bout, frame, tail segment, angle components>
-                                    Tail angles decomposed into xy components for each frame within 
-                                    a bout, angles are with respect to heading (radians).
-                                    =>	"tail segment" dimension: 
-                                                    index [0] = tail tip, index [-1] = swim bladder 
+'tailComponents':
+                        <bout, frame, tail segment, angle components>
+                        Tail angles decomposed into xy components for each frame within 
+                        a bout, angles are with respect to heading (radians).
+                        =>	"tail segment" dimension: 
+                                        index [0] = tail tip, index [-1] = swim bladder 
 
-            'deltaPosition':
-                                    <bout, (Δx swimbladder, Δy swimbladder, Δx heading, Δy heading)>
-                                    the change in global swimbladder position and the change in
-                                    heading xy components between the start and end of each bout
+'deltaPosition':
+                        <bout, (Δx swimbladder, Δy swimbladder, Δx heading, Δy heading)>
+                        the change in global swimbladder position and the change in
+                        heading xy components between the start and end of each bout
 
-            'position0':	<bout, start[0]/end[1] bout swimbladder positions, coordinates>
-                                    global coordinates of swimbladder at the start and end
-                                    of each bout
+'position0':	<bout, start[0]/end[1] bout swimbladder positions, coordinates>
+                        global coordinates of swimbladder at the start and end
+                        of each bout
 
-            'position1':	<bout, start[0]/end[0] bout third-eye positions, coordinates>
-                                    global coordinates of "third-eye" at the start and end
-                                    of each bout, third-eye = computed center of eyes
+'position1':	<bout, start[0]/end[0] bout third-eye positions, coordinates>
+                        global coordinates of "third-eye" at the start and end
+                        of each bout, third-eye = computed center of eyes
 
-            'heading':		<bout, start[0]/end[1] bout heading> 
-                                    heading in radians at the start and end of each bout
+'heading':		<bout, start[0]/end[1] bout heading> 
+                        heading in radians at the start and end of each bout
 
-            'tailCoordintes': <bout, frame, tail segment, coordinates>
-                                    local coordinates of tail segment during swim bouts
-                                    =>	"tail segment" dimension: 
-                                                    index [0] = tail tip, index [-1] = swim bladder 
+'tailCoordintes': <bout, frame, tail segment, coordinates>
+                        local coordinates of tail segment during swim bouts
+                        =>	"tail segment" dimension: 
+                                        index [0] = tail tip, index [-1] = swim bladder 
+
+
 '''
