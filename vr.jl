@@ -3,6 +3,7 @@ using Images
 using GLMakie
 using GeometryBasics
 using LinearAlgebra
+using PyCall
 
 #camlist = CameraList()
 #cam = camlist[0]
@@ -14,36 +15,36 @@ using LinearAlgebra
 #gold = load(download("https://raw.githubusercontent.com/nidorx/matcaps/master/1024/E6BF3C_5A4719_977726_FCFC82.png"))
 
 
-# py"""
+py"""
 
-# import json
-# import pandas as pd
-# import sppl.compilers.spn_to_dict as spn_to_dict
-# from sppl.transforms import Identity as I
-# from collections import OrderedDict
+import json
+import pandas as pd
+import sppl.compilers.spn_to_dict as spn_to_dict
+from sppl.transforms import Identity as I
+from collections import OrderedDict
 
-# df = pd.read_csv('/Users/nightcrawler/inferenceql.auto-modeling/data/nullified.csv')
+df = pd.read_csv('/Users/nightcrawler/inferenceql.auto-modeling/data/nullified.csv')
 
-# def loader():
-#     with open('/Users/nightcrawler/inferenceql.auto-modeling/data/sppl/merged.json') as f:
-#         spn_dict = json.load(f)
-#     model = spn_to_dict.spn_from_dict(spn_dict)
-#     return model
+def loader():
+    with open('/Users/nightcrawler/inferenceql.auto-modeling/data/sppl/merged.json') as f:
+        spn_dict = json.load(f)
+    model = spn_to_dict.spn_from_dict(spn_dict)
+    return model
 
-# def generate(model, N):
-#     samples = model.sample(N)
-#     return pd.DataFrame(
-#         [
-#             {k.__str__():v
-#              for k,v in sample.items()
-#              if ('_cluster' not in k.__str__()) and k.__str__()!='child'
-#             }
-#         for sample in samples
-#     ])[df.columns]
+def generate(model, N):
+    samples = model.sample(N)
+    return pd.DataFrame(
+        [
+            {k.__str__():v
+             for k,v in sample.items()
+             if ('_cluster' not in k.__str__()) and k.__str__()!='child'
+            }
+        for sample in samples
+    ])[df.columns]
 
-# """
-# model = py"loader"()
-# py"generate"(model, 1)
+"""
+model = py"loader"()
+py"generate"(model, 1)
 
 function generate_bout(mod)
     bout_sample = py"generate"(mod, 1)
@@ -105,13 +106,14 @@ end
 
 
 function make_VR_environment()
+    env_gray = RGBAf0(230, 230, 230, 0.0)
     black = RGBAf0(0, 0, 0, 0.0)
     row_res = 800
     col_res = 480
-    env_fig = Figure(resolution=(row_res, col_res), outer_padding=-50)
+    env_fig = Figure(resolution=(row_res, col_res), outer_padding=-50, backgroundcolor=env_gray)
     limval = 100
     fish_origin = 100
-    mesh_cover = load("stone.png")
+    mesh_cover = load("sandstone.png")
     timenode = Node(1)
     para_trajectory = draw_para_trajectory()
     coords(t) = convert(Vector{Point3f0}, para_trajectory[t:t])
@@ -122,32 +124,26 @@ function make_VR_environment()
     # note "msize" has been replaced by "markersize" 
     # env_axis = Axis3(env_fig[1,1], xtickcolor=black,
     #                  viewmode=:fit, aspect=(1,1,1), perspectiveness=0.5, protrusions=0, limits=lim)
-    env_axis = Axis3(env_fig[1,1], xtickcolor=black, 
-                     aspect=(1,1,1), perspectiveness=.5, limits=lim)
-
-
+#    env_axis = Axis3(env_fig[1,1], xtickcolor=black, viewmode=:stretch,perspectiveness=.5, limits=lim)
+                   #  aspect=(1,1,1), 
+    env_axis = Axis3(env_fig[1,1], xtickcolor=black, perspectiveness=.5, limits=lim, 
+                     aspect=(1,1,1)) 
 
     scatter!(env_axis, lift(t -> coords(t), timenode), markersize=3, markerspace=SceneSpace)
   #  wireframe!(env_axis, make_ground_mesh(fish_origin/4, limval*2))
-    mesh!(env_axis, make_ground_mesh(0, 200), color=mesh_cover, shading=false)
+    mesh!(env_axis, make_ground_mesh(0, 1000), color=mesh_cover, shading=false)
     # set rotation_center as the eyeposition b/c otherwise it rotates around the origin of the grid (i.e. the lookat)
-    fish = cam3d!(env_axis.scene, eyeposition=Vec3f0(-limval, 0, 0), lookat=Vec3f0(0,0,0), fixed_axis=true, fov=50, rotation_center=:eyeposition)
+    fish = cam3d!(env_axis.scene, eyeposition=Vec3f0(-limval, 0, 10), lookat=Vec3f0(1,0,10), fixed_axis=true, fov=50, rotation_center=:eyeposition)
     hidedecorations!(env_axis)
     hidespines!(env_axis)
-    center!(env_axis.scene)
+    update_cam!(env_axis.scene, fish, fish.eyeposition[], Vec3f0(1, 0, 10))
     # this is the only way to center it and get it to the point you want!
-    translate_cam!(env_axis.scene, fish, Vec3f0(0, 0, fish.eyeposition[][1] + limval))
-
-    # puts the fish up to 10 pix in vertical. 
-    translate_cam!(env_axis.scene, fish, Vec3f0(0, -fish.eyeposition[][3] + 10, 0))
-    translate_cam!(env_axis.scene, fish, Vec3f0(fish.eyeposition[][2], 0, 0))
     display(env_fig)
     # for translate cam and rotate cam, the vectors are side to side, up and down, and into the screen. they aren't x, y, z, but are in the same units. angles are in rad.
     # here go for the tail angle.
     # write an output function here to activate the pyboard triggering run.
     # translate cam 3rd variable is translation in X. its negative to go forward.
     # rotate cam yaw angle is the second variable. 
-
     stop_experiment = false
     toggle_experiment() = stop_experiment ? stop_experiment = false : stop_experiment = true
 

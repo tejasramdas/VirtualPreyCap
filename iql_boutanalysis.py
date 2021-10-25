@@ -16,7 +16,6 @@ def grab_first(x):
     except StopIteration:
         return -1
 
-
 # everything inverted here so positive is right, neg is left.
     
 def delta_yaw(heading):
@@ -45,110 +44,114 @@ def bout_dist(eyepos):
     return np.linalg.norm(eye2-eye1)
     
 
-# write some clever slicing methods to decimate this csv. its way too big. 
+class BoutDataCollector:
+    def __init__(self, bout_indices):
+        self.bout_length = 69
+        self.num_segments = 15
+        self.decimate_tail_by = 3
+        self.decimate_time_by = 2
+        self.segments_to_keep = range(0,
+                                      self.num_segments,
+                                      self.decimate_tail_by)
+        self.bd = load_bout_data()
+        self.bouts_of_interest = bout_indices
+        self.bout_initiations = []
+        self.tailangles = []
+        self.find_bouts_and_tailangles()
+        self.eye_positions = np.array(self.bd['position1'])[self.bouts_of_interest]
+        self.heading_deltas = np.array(self.bd['heading'])[self.bouts_of_interest]
+        
 
-def make_dataframe(ta_at_b0, eyeposlist, fish_heading_angles, headers, clip_data):
-    df = pd.DataFrame(columns=headers)
-    for tailangles, eye_position, delta_heading in zip(ta_at_b0[0:clip_data],
-                                                       eyeposlist[0:clip_data],
-                                                       fish_heading_angles[0:clip_data]):
-        b_az = bout_az(eye_position, delta_heading)
-        b_yaw = delta_yaw(delta_heading)
-        b_dist = bout_dist(eye_position)
-        ta_concat = np.concatenate(tailangles).tolist()
-        dict_entry = {h: val for h, val in zip(
-            all_headers, ta_concat+[b_az, b_yaw, b_dist])}
-        df.loc[len(df.index)] = dict_entry
+    def find_bouts_and_tailangles(self):
+        tail_angles_raw = list(map(
+            lambda t: np.arctan2(t[..., 1], t[..., 0]).T, self.bd["tailComponents"][
+                self.bouts_of_interest]))
+        bout_detector = lambda x: grab_first(filter(lambda y: np.abs(x[0])[y] > .3,
+                                                    argrelmax(np.abs(x[0]))[0])) - 5
+        self.bout_initiations = list(map(bout_detector, tail_angles_raw))
+        self.tailangles = np.array([
+            np.pad(
+                b[:, bi:sys.maxsize:decimate_time_by],
+                (0, np.ceil(
+                    self.bout_length / self.decimate_time_by).astype(int) -
+                 len(b[:, bi:sys.maxsize:self.decimate_time_by][0])),
+                constant_values=np.nan)[
+                    self.segments_to_keep] for b, bi in zip(
+                    tail_angles_raw, self.bout_initiations)])
 
-    for c in df.columns:
-        if len(df[c].value_counts()) == 0:
-            del df[c]
-    df.to_csv('boutdata.csv', index=False)  #, na_rep='NaN')
-    
-    return df
-
-            
-
-    
-if __name__ == "__main__":
-    random_indices = np.cumsum([np.random.randint(200) for i in range(1000)])
-    bout_length = 69
-    num_segments = 15
-    decimate_tail_by = 3
-    decimate_time_by = 2
-    segments_to_keep = range(0, num_segments, decimate_tail_by)
-    bd = load_bout_data()
-    eye_positions = np.array(bd['position1'])[random_indices]
-    heading_deltas = np.array(bd['heading'])[random_indices]
-    atan_map = lambda t: np.arctan2(t[..., 1], t[..., 0]).T
-    tail_angles = list(map(atan_map, bd["tailComponents"]))
-    bout_detector = lambda x: grab_first(filter(lambda y: np.abs(x[0])[y] > .3,
-                                                argrelmax(np.abs(x[0]))[0])) - 5
-    bout_initiation = list(map(bout_detector, tail_angles))
-    tail_angles_starting_at_b0 = np.array([
-            np.pad(b[:, bi:sys.maxsize:decimate_time_by], (0, np.ceil(bout_length/decimate_time_by).astype(int) - len(b[:, bi:sys.maxsize:decimate_time_by][0])),
-                   constant_values=np.nan)[segments_to_keep] for b, bi in zip(
-                       tail_angles, bout_initiation)])[random_indices]
-    # tailseg1_t1 -> t15,
-    # have to decimate time by decreasing j to range(0, bout_length, decimate_time_by)
-    headers_tail = ['tailseg' + str(i) + 't' + str(j) for i in segments_to_keep for j in range(0, bout_length, decimate_time_by)]
-    
-    headers_bout = ['BoutAz', 'BoutYaw', 'BoutDistance']
-    all_headers = headers_tail + headers_bout
-
-    df = make_dataframe(tail_angles_starting_at_b0,
-                        eye_positions, heading_deltas, all_headers, sys.maxsize)
         
         
-        
-    # part of me wants to map the rotations and displacements to my original coordinate system.
-    # bout az, bout yaw, and bout dist. 
+    def export_bout_dataframe(self):
+        headers_tail = ['tailseg' + str(i) + 't' + str(j)
+                        for i in self.segments_to_keep for j in range(
+                                0, self.bout_length, self.decimate_time_by)]
+        headers_bout = ['BoutAz', 'BoutYaw', 'BoutDistance']
+        all_headers = headers_tail + headers_bout
+        df = pd.DataFrame(columns=all_headers)
+        for tailangles, eye_position, delta_heading in zip(self.tailangles,
+                                                           self.eye_positions,
+                                                           self.heading_deltas):
+            b_az = bout_az(eye_position, delta_heading)
+            b_yaw = delta_yaw(delta_heading)
+            b_dist = bout_dist(eye_position)
+            ta_concat = np.concatenate(tailangles).tolist()
+            dict_entry = {h: val for h, val in zip(
+                all_headers, ta_concat+[b_az, b_yaw, b_dist])}
+            df.loc[len(df.index)] = dict_entry
+
+        for c in df.columns:
+            if len(df[c].value_counts()) == 0:
+                del df[c]
+        df.to_csv('boutdata.csv', index=False)  #, na_rep='NaN')
+        return df
+
+
+
+
+
 
     
-   
-    
-    
-    
-    
-    
+# if __name__ == "__main__":
+#     random_indices = np.cumsum([np.random.randint(200) for i in range(1000)])
+#     bd = BoutDataCollector(random_indices)
+#     bd.export_bout_dataframe()
 
 
 
+    
+    
+'''
 
-# tailComponents is arranged by bout, frame, 15 tail segments with an XY angle.
-# only relevant data pieces are tailComponents and deltaPosition
+tailComponents is arranged by bout, frame, 15 tail segments with an XY angle.
+only relevant data pieces are tailComponents and deltaPosition
 
-'''	
-==> Load '*_modelData.h5':
-	`from andrewHarvard import loadNNData`
-	`tailComponents, deltaPosition, position0, position1, heading, tailCoordinates = loadNNData(file_path)`
 ===========================================================================
 
-	'tailComponents':
-				<bout, frame, tail segment, angle components>
-				Tail angles decomposed into xy components for each frame within 
-				a bout, angles are with respect to heading (radians).
-				=>	"tail segment" dimension: 
-						index [0] = tail tip, index [-1] = swim bladder 
-				
-	'deltaPosition':
-				<bout, (Δx swimbladder, Δy swimbladder, Δx heading, Δy heading)>
-				the change in global swimbladder position and the change in
-				heading xy components between the start and end of each bout
+            'tailComponents':
+                                    <bout, frame, tail segment, angle components>
+                                    Tail angles decomposed into xy components for each frame within 
+                                    a bout, angles are with respect to heading (radians).
+                                    =>	"tail segment" dimension: 
+                                                    index [0] = tail tip, index [-1] = swim bladder 
 
-	'position0':	<bout, start[0]/end[1] bout swimbladder positions, coordinates>
-				global coordinates of swimbladder at the start and end
-				of each bout
+            'deltaPosition':
+                                    <bout, (Δx swimbladder, Δy swimbladder, Δx heading, Δy heading)>
+                                    the change in global swimbladder position and the change in
+                                    heading xy components between the start and end of each bout
 
-	'position1':	<bout, start[0]/end[0] bout third-eye positions, coordinates>
-				global coordinates of "third-eye" at the start and end
-				of each bout, third-eye = computed center of eyes
+            'position0':	<bout, start[0]/end[1] bout swimbladder positions, coordinates>
+                                    global coordinates of swimbladder at the start and end
+                                    of each bout
 
-	'heading':		<bout, start[0]/end[1] bout heading> 
-				heading in radians at the start and end of each bout
+            'position1':	<bout, start[0]/end[0] bout third-eye positions, coordinates>
+                                    global coordinates of "third-eye" at the start and end
+                                    of each bout, third-eye = computed center of eyes
 
-	'tailCoordintes': <bout, frame, tail segment, coordinates>
-				local coordinates of tail segment during swim bouts
-				=>	"tail segment" dimension: 
-						index [0] = tail tip, index [-1] = swim bladder 
+            'heading':		<bout, start[0]/end[1] bout heading> 
+                                    heading in radians at the start and end of each bout
+
+            'tailCoordintes': <bout, frame, tail segment, coordinates>
+                                    local coordinates of tail segment during swim bouts
+                                    =>	"tail segment" dimension: 
+                                                    index [0] = tail tip, index [-1] = swim bladder 
 '''
