@@ -10,6 +10,9 @@ import sppl.compilers.spn_to_dict as spn_to_dict
 from sppl.transforms import Identity as I
 from collections import OrderedDict
 
+# next step is to get the validation set into a dataframe (last 3600 bouts)
+# loop through each and assign a probability
+
 
 def load_bout_data():
     h5f = h5py.File("total_2rep_smooth_modelData.h5", 'r')
@@ -50,11 +53,12 @@ def bout_dist(eyepos):
     
 
 class BoutDataCollector:
-    def __init__(self, bout_indices):
+    def __init__(self, bout_indices, df_id):
         self.bout_length = 69
         self.num_segments = 15
         self.decimate_tail_by = 3
         self.decimate_time_by = 2
+        self.df_id = df_id
         self.segments_to_keep = range(0,
                                       self.num_segments,
                                       self.decimate_tail_by)
@@ -76,7 +80,7 @@ class BoutDataCollector:
         self.bout_initiations = list(map(bout_detector, tail_angles_raw))
         self.tailangles = np.array([
             np.pad(
-                b[:, bi:sys.maxsize:decimate_time_by],
+                b[:, bi:sys.maxsize:self.decimate_time_by],
                 (0, np.ceil(
                     self.bout_length / self.decimate_time_by).astype(int) -
                  len(b[:, bi:sys.maxsize:self.decimate_time_by][0])),
@@ -107,7 +111,7 @@ class BoutDataCollector:
         for c in df.columns:
             if len(df[c].value_counts()) == 0:
                 del df[c]
-        df.to_csv('boutdata.csv', index=False)  #, na_rep='NaN')
+        df.to_csv(self.df_id + '_boutdata.csv', index=False)  #, na_rep='NaN')
         return df
 
 
@@ -119,6 +123,7 @@ class SpplSampler:
             self.dep_prob = json.load(f)
         self.dep_df = pd.DataFrame()
         self.extract_dependencies()
+        self.conditioned_model = self.model
 #        self.observed_data = 
 
     def loader(self):
@@ -214,8 +219,8 @@ class SpplSampler:
         (xordering, yordering) = _clustermap_ordering(D)
         xticklabels = np.asarray(pivot.columns)[xordering]
         yticklabels = np.asarray(pivot.index)[yordering]
-        D = D[:,xordering]
-        D = D[yordering,:]
+        D = D[:, xordering]
+        D = D[yordering, :]
         ax = sns.heatmap(
             D,
             xticklabels=xticklabels,
@@ -240,7 +245,8 @@ class SpplSampler:
         if constraint_row == ():
             model = self.model
         else:
-            model = self.make_conditional_spn(constraint_row[0])
+            self.make_conditional_spn(constraint_row[0])
+            model = self.conditioned_model
         samples = model.sample(N)
         return pd.DataFrame(
             [
@@ -255,13 +261,71 @@ class SpplSampler:
     def make_conditional_spn(self, df_row):
         constraints = {I(k): v for k, v in df_row.to_dict().items() if (
             k[0:4] != "Bout" and np.isfinite(v))}
-        model = self.model.constrain(constraints)
-        return model
-        
+        self.conditioned_model = self.model.constrain(constraints)
 
 
+def posterior_3D_boutplot(df, groundtruth):
+    fig = pl.figure()
+    ax = fig.add_subplot(projection='3d')
+    density = ax.scatter(df["BoutAz"], df["BoutYaw"], df["BoutDistance"],
+                         c='k', alpha=.1)
+    groundtruth = ax.scatter(groundtruth[0], groundtruth[1], groundtruth[2], color='r')
+    ax.set_xlabel('Bout Az')
+    ax.set_ylabel('Bout Yaw')
+    ax.set_zlabel('Bout Distance')
+    pl.show()
 
-    
+
+def test_model_v_groundtruth(sp_sampler, df_row, plot_dist):
+    groundtruth = [np.array(df_row["BoutAz"]),
+                   np.array(df_row["BoutYaw"]),
+                   np.array(df_row["BoutDistance"])]
+    # here will be a generate call that will take a min to make a SPN. for now
+    # placehold with a sample call
+
+    angle_bound = np.deg2rad(1)
+    dist_bound = .1
+#    posterior_dist = sp_sampler.generate(100, df_row)
+    posterior_dist = sp_sampler.generate(100)
+    print(groundtruth)
+    prob_gt_under_model = sp_sampler.model.prob(
+#    prob_gt_under_model = sp_sampler.conditioned_model.prob(
+        (I("BoutAz") < float(groundtruth[0]) + angle_bound) &
+        (I("BoutAz") > float(groundtruth[0]) - angle_bound) &
+        (I("BoutYaw") < float(groundtruth[1]) + angle_bound) &
+        (I("BoutYaw") > float(groundtruth[1]) - angle_bound) &
+        (I("BoutDistance") < float(groundtruth[2]) + dist_bound) &
+        (I("BoutDistance") > float(groundtruth[2]) - dist_bound))
+    if plot_dist:
+        posterior_3D_boutplot(posterior_dist, groundtruth)
+    return prob_gt_under_model
+
+
+def get_validation_set(num_bouts_from_end):
+    bd = load_bout_data()
+    bouts_in_dataset = len(bd["position1"])
+    bout_indices = np.arange(bouts_in_dataset - num_bouts_from_end,
+                             bouts_in_dataset)
+    validation_bout_collector = BoutDataCollector(bout_indices, "validation")
+    df = validation_bout_collector.export_bout_dataframe()
+    return df
+
+
+def model_v_groundtruth_probabilities(sp_sampler, *test_df):
+    if test_df == ():
+        test_df = get_validation_set(3600)
+    else:
+        test_df = test_df[0]
+    probs = []
+    for i, df_row in test_df.iterrows():
+        p = test_model_v_groundtruth(sp_sampler, df_row, False)
+        probs.append(p)
+        if i == 100:
+            break
+    fig, ax = pl.subplots()
+    sns.kdeplot(probs, ax=ax, label="probabilities of validation set under model")
+
+
 def _clustermap(
         D, xticklabels=None, yticklabels=None, vmin=None, vmax=None, **kwargs):
     sns.set_style('white')
@@ -274,7 +338,7 @@ def _clustermap(
         xticklabels=xticklabels,
         yticklabels=yticklabels,
         linewidths=0.2,
-        cmap='BuGn',
+        cmap='viridis',
         vmin=vmin,
         vmax=vmax,
     )
