@@ -13,9 +13,13 @@ from collections import OrderedDict
 # next step is to get the validation set into a dataframe (last 3600 bouts)
 # loop through each and assign a probability
 
+# am thinking this is a good application for gen.train + genpytorch.
+# now want to scale back the amount of data you're adding.
+# 
 
 def load_bout_data():
-    h5f = h5py.File("total_2rep_smooth_modelData.h5", 'r')
+#    h5f = h5py.File("total_2rep_smooth_modelData.h5", 'r')
+    h5f = h5py.File("MH_Preycap/track_and_write__smooth_modelData.h5", 'r')
     return h5f
 
 def grab_first(x):
@@ -359,11 +363,16 @@ def _clustermap_ordering(D):
     xordering = zmatrix.dendrogram_col.reordered_ind
     yordering = zmatrix.dendrogram_row.reordered_ind
     return (xordering, yordering)
+
+
+def make_bout_dataframe(num_datapoints, div):
+    random_indices = np.cumsum([np.random.randint(div)+1 for i in range(num_datapoints)])
+    bd = BoutDataCollector(random_indices, "training")
+    bd.export_bout_dataframe()
     
+
+
 # if __name__ == "__main__":
-#     random_indices = np.cumsum([np.random.randint(200) for i in range(1000)])
-#     bd = BoutDataCollector(random_indices)
-#     bd.export_bout_dataframe()
 
 
 '''
