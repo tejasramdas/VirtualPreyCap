@@ -5,6 +5,13 @@ using GeometryBasics
 using LinearAlgebra
 using PyCall
 
+#camlist = CameraList()
+#cam = camlist[0]
+#triggersource!(cam, "Software")
+#triggermode!(cam, "On")
+#gain!(cam, 0)
+#acquisitionmode!(cam, "Continuous")
+
 #gold = load(download("https://raw.githubusercontent.com/nidorx/matcaps/master/1024/E6BF3C_5A4719_977726_FCFC82.png"))
 
 
@@ -45,15 +52,28 @@ function generate_bout(mod)
 end    
 
 
+# start!(cam)
+#     #@info "Exposure set to $(expact/1e6)s"
+#  #   trigger!(cam)
+# #    saveimage(cam, joinpath(@__DIR__, "exposure_$(expval/1e6)s.png"), spinImageFileFmakeormat(6))
+# image_from_cam = getimage(cam)
+# im_arr = CameraImage(image_from_cam, UInt8)
+# @info "Image saved"
+# Images.save("/home/andrewbolton/VirtualPreyCap/im.png", im_arr)
+# stop!(cam)
+
 roundint(x) = round(Int, x)
 tail_circle_res = 128
 zero_to_pi = 0:-π/(tail_circle_res / 2):-π
 pi_to_zero = π:-π/(tail_circle_res / 2):0
 arc_index_to_angle(x) = vcat(zero_to_pi[1:end-1], pi_to_zero[1:end-1])[x]
 
+
 fishimage = load("embedded_fish_bent_right.png")
 fishimage = convert(Matrix{Gray}, fishimage)
 fishimage = convert(Matrix{UInt8}, fishimage * 255)
+
+
 
 
 function draw_para_trajectory()

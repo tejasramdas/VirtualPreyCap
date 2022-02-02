@@ -117,9 +117,12 @@ class BoutDataCollector:
 
 class SpplSampler:
     def __init__(self):
-        self.df = pd.read_csv("/Users/nightcrawler/inferenceql.auto-modeling/data/nullified.csv")
+#        self.df = pd.read_csv("/Users/nightcrawler/inferenceql.auto-modeling/data/nullified.csv")
+        self.df = pd.read_csv("/home/andrewbolton/inferenceql.auto-modeling/data/nullified.csv")
         self.model = self.loader()
-        with open('/Users/nightcrawler/inferenceql.auto-modeling/data/dep-prob.json', 'r') as f:
+#        with open('/Users/nightcrawler/inferenceql.auto-modeling/data/dep-prob.json', 'r') as f:
+#            self.dep_prob = json.load(f)
+        with open('/home/andrewbolton/inferenceql.auto-modeling/data/dep-prob.json', 'r') as f:
             self.dep_prob = json.load(f)
         self.dep_df = pd.DataFrame()
         self.extract_dependencies()
@@ -127,7 +130,8 @@ class SpplSampler:
 #        self.observed_data = 
 
     def loader(self):
-        with open("/Users/nightcrawler/inferenceql.auto-modeling/data/sppl/merged.json") as f:
+#        with open("/Users/nightcrawler/inferenceql.auto-modeling/data/sppl/merged.json") as f:
+        with open("/home/andrewbolton/inferenceql.auto-modeling/data/sppl/merged.json") as f:        
             spn_dict = json.load(f)
         model = spn_to_dict.spn_from_dict(spn_dict)
         return model
@@ -233,6 +237,7 @@ class SpplSampler:
             vmax=vmax,
         )
         # Heuristics for the size.
+     
         figsize = kwargs.pop('figsize', None)
         if figsize is None:
             half_root_col = (self.dep_df.shape[0] ** .5) / 2.5
@@ -258,7 +263,7 @@ class SpplSampler:
             ])[self.df.columns]
 
     # get out by df.loc[1]
-    def make_conditional_spn(self, df_row):
+    Def make_conditional_spn(self, df_row):
         constraints = {I(k): v for k, v in df_row.to_dict().items() if (
             k[0:4] != "Bout" and np.isfinite(v))}
         self.conditioned_model = self.model.constrain(constraints)
