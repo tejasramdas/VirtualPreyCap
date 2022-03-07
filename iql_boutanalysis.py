@@ -267,7 +267,7 @@ class SpplSampler:
             ])[self.df.columns]
 
     # get out by df.loc[1]
-    Def make_conditional_spn(self, df_row):
+    def make_conditional_spn(self, df_row):
         constraints = {I(k): v for k, v in df_row.to_dict().items() if (
             k[0:4] != "Bout" and np.isfinite(v))}
         self.conditioned_model = self.model.constrain(constraints)
